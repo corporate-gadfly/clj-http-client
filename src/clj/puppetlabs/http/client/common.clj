@@ -126,7 +126,8 @@
    (ok :metric-prefix) schema/Str
    (ok :enable-url-metrics?) schema/Bool
    (ok :max-connections-total) schema/Int
-   (ok :max-connections-per-route) schema/Int})
+   (ok :max-connections-per-route) schema/Int
+   (ok :otel-histogram) schema/Any})
 
 (def UserRequestOptions
   "A cleaned-up version of RawUserRequestClientOptions, which is formed after

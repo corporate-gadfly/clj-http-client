@@ -12,6 +12,7 @@
 (ns puppetlabs.http.client.async
   (:import (com.puppetlabs.http.client ClientOptions RequestOptions ResponseBodyType HttpMethod CompressType)
            (com.puppetlabs.http.client.impl JavaClient ResponseDeliveryDelegate)
+           (clojure.lang IBlockingDeref IDeref IPending)
            (org.apache.http.impl.nio.client CloseableHttpAsyncClient)
            (org.apache.http.client.utils URIBuilder)
            (org.apache.http.entity ContentType)
@@ -276,7 +277,8 @@
   (let [client (create-default-client opts)
         metric-registry (:metric-registry opts)
         metric-namespace (metrics/build-metric-namespace (:metric-prefix opts) (:server-id opts))
-        enable-url-metrics? (clojure.core/get opts :enable-url-metrics? true)]
+        enable-url-metrics? (clojure.core/get opts :enable-url-metrics? true)
+        otel-histogram (:otel-histogram opts)]
     (reify common/HTTPClient
       (get [this url] (common/get this url {}))
       (get [this url opts] (common/make-request this url :get opts))
@@ -295,11 +297,31 @@
       (patch [this url] (common/patch this url {}))
       (patch [this url opts] (common/make-request this url :patch opts))
       (make-request [this url method] (common/make-request this url method {}))
-      (make-request [_ url method opts] (request-with-client
-                                         (assoc opts :method method :url url)
-                                         nil client metric-registry
-                                         metric-namespace
-                                         enable-url-metrics?))
+      (make-request [_ url method opts]
+        (let [start-ns       (System/nanoTime)
+              result-promise (request-with-client
+                              (assoc opts :method method :url url)
+                              nil client metric-registry
+                              metric-namespace enable-url-metrics?)]
+          (if otel-histogram
+            ;; Return a wrapper that records OTEL duration on deref
+            (reify IBlockingDeref
+              (deref [_ timeout-ms timeout-val]
+                (let [resp (deref result-promise timeout-ms timeout-val)]
+                  (when (and (map? resp) (not= resp timeout-val))
+                    (let [elapsed (/ (double (- (System/nanoTime) start-ns)) 1e6)]
+                      (metrics/record-otel-client-duration!
+                       otel-histogram url method
+                       (clojure.core/get resp :status 0)
+                       elapsed)))
+                  resp))
+              IDeref
+              (deref [this]
+                (.deref this Long/MAX_VALUE nil))
+              IPending
+              (isRealized [_]
+                (.isRealized ^IPending result-promise)))
+            result-promise)))
       (close [_] (.close client))
       (get-client-metric-registry [_] metric-registry)
       (get-client-metric-namespace [_] metric-namespace))))

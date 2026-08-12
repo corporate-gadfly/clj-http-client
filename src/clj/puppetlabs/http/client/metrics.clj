@@ -4,7 +4,10 @@
             [schema.core :as schema])
   (:import (com.codahale.metrics MetricRegistry)
            (com.puppetlabs.http.client.metrics ClientMetricData Metrics
-                                               Metrics$MetricType)))
+                                               Metrics$MetricType)
+           (io.opentelemetry.api.common AttributeKey Attributes)
+           (io.opentelemetry.api.metrics DoubleHistogram Meter MeterProvider)
+           (java.net URI)))
 
 (schema/defn get-base-metric-data :- common/BaseMetricData
   [data :- ClientMetricData]
@@ -127,3 +130,35 @@
               metric-registry
               (into-array String (map name metric-id)))]
     (map get-metric-id-metric-data data)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; OpenTelemetry client metrics
+
+(schema/defn ^:always-validate create-otel-client-histogram
+  "Create an OTEL DoubleHistogram for http.client.request.duration.
+  Returns nil when meter-provider is nil."
+  [meter-provider :- (schema/maybe MeterProvider)
+   scope-name :- schema/Str]
+  (when meter-provider
+    (let [meter (.build (.meterBuilder ^MeterProvider meter-provider scope-name))]
+      (.build
+       (-> (.histogramBuilder ^Meter meter "http.client.request.duration")
+           (.setDescription "Duration of HTTP client requests")
+           (.setUnit "ms"))))))
+
+(defn record-otel-client-duration!
+  "Record a client request duration to the OTEL histogram with dimensional
+  attributes: server.address, http.request.method, http.response.status_code.
+  No-op when histogram is nil."
+  [^DoubleHistogram histogram url method status-code elapsed-ms]
+  (when histogram
+    (let [server-address (try
+                           (.getHost (URI. (str url)))
+                           (catch Exception _ (str url)))
+          attrs (-> (Attributes/builder)
+                    (.put (AttributeKey/stringKey "server.address") (or server-address "unknown"))
+                    (.put (AttributeKey/stringKey "http.request.method")
+                          (clj-string/upper-case (name method)))
+                    (.put (AttributeKey/stringKey "http.response.status_code") (str status-code))
+                    (.build))]
+      (.record histogram elapsed-ms ^Attributes attrs))))

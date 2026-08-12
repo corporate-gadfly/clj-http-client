@@ -51,7 +51,8 @@
   (let [client (async/create-default-client opts)
         metric-registry (:metric-registry opts)
         metric-namespace (metrics/build-metric-namespace (:metric-prefix opts) (:server-id opts))
-        enable-url-metrics? (clojure.core/get opts :enable-url-metrics? true)]
+        enable-url-metrics? (clojure.core/get opts :enable-url-metrics? true)
+        otel-histogram (:otel-histogram opts)]
     (reify common/HTTPClient
       (get [this url] (common/get this url {}))
       (get [this url opts] (common/make-request this url :get opts))
@@ -70,9 +71,16 @@
       (patch [this url] (common/patch this url {}))
       (patch [this url opts] (common/make-request this url :patch opts))
       (make-request [this url method] (common/make-request this url method {}))
-      (make-request [_ url method opts] (request-with-client
-                                         (assoc opts :method method :url url)
-                                         client metric-registry metric-namespace enable-url-metrics?))
+      (make-request [_ url method opts]
+        (let [start-ns (System/nanoTime)
+              resp     (request-with-client
+                        (assoc opts :method method :url url)
+                        client metric-registry metric-namespace enable-url-metrics?)]
+          (metrics/record-otel-client-duration!
+           otel-histogram url method
+           (:status resp 0)
+           (/ (double (- (System/nanoTime) start-ns)) 1e6))
+          resp))
       (close [_] (.close client))
       (get-client-metric-registry [_] metric-registry)
       (get-client-metric-namespace [_] metric-namespace))))

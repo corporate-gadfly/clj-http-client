@@ -1,5 +1,6 @@
 (def i18n-version "1.0.5")
 (def slf4j-version "2.0.18")
+(def opentelemetry-version "1.64.0")
 
 (defproject org.openvoxproject/http-client "2.4.2-SNAPSHOT"
   :description "HTTP client wrapper"
@@ -22,6 +23,8 @@
                          [commons-codec "1.22.1"]
                          [commons-io "2.22.0"]
                          [io.dropwizard.metrics/metrics-core "3.2.6"]
+                         [io.opentelemetry/opentelemetry-api ~opentelemetry-version]
+                         [io.opentelemetry/opentelemetry-sdk ~opentelemetry-version]
                          [org.apache.httpcomponents/httpasyncclient "4.1.5"]
                          [org.bouncycastle/bcpkix-jdk18on "1.85"]
                          [org.bouncycastle/bcpkix-fips "1.0.8"]
@@ -42,6 +45,7 @@
   :dependencies [[org.clojure/clojure]
                  [commons-io]
                  [io.dropwizard.metrics/metrics-core]
+                 [io.opentelemetry/opentelemetry-api]
                  [org.apache.httpcomponents/httpasyncclient]
                  [org.openvoxproject/ssl-utils]
                  [org.openvoxproject/i18n]
@@ -67,7 +71,9 @@
              :dev-deps  {:dependencies [[org.bouncycastle/bcpkix-jdk18on]]}
              :dev [:defaults :dev-deps :test]
              :test {:pedantic? :warn
-                    :dependencies [[org.openvoxproject/trapperkeeper-webserver]
+                    :dependencies [[io.opentelemetry/opentelemetry-sdk]
+                                  [org.openvoxproject/trapperkeeper-metrics]
+                                  [org.openvoxproject/trapperkeeper-webserver]
                                   [org.openvoxproject/trapperkeeper-webserver :classifier "test"]
                                   [org.openvoxproject/ring-middleware]]}
              :fips-deps {:dependencies [[org.bouncycastle/bcpkix-fips]
